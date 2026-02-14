@@ -2,26 +2,44 @@
 
 ## Overview
 
-Medi-Vault is a secure personal health management platform that enables patients to digitize, store, and analyze their medical records. The system supports multiple workflows: patient self-scanning, doctor-created reports, pre-visit preparation, AI-powered insights, longitudinal tracking, and immutable audit trails. Built entirely on AWS services, Medi-Vault uses Amazon QLDB for blockchain-based audit logging, ensuring data integrity and compliance with HIPAA/GDPR requirements.
+Medi-Vault is a secure personal health management platform that enables patients to digitize, store, and analyze their medical records. The system supports multiple workflows: patient self-scanning, doctor-created reports, pre-visit preparation, AI-powered insights, longitudinal tracking, and immutable audit trails. Built entirely on AWS services, Medi-Vault uses Amazon Aurora PostgreSQL with ledger for tamper-evident audit logging, Amazon OpenSearch Serverless for semantic search, and Amazon GuardDuty for malware protection, ensuring data integrity and compliance with HIPAA/GDPR requirements.
 
 **Key Architectural Principles:**
 - **Deterministic pipeline**: No agentic complexity; each component has clear responsibilities
 - **Mobile-first**: Responsive design optimized for mobile devices
-- **Security by design**: Encryption at rest and in transit, MFA enforcement, fine-grained access control
-- **Immutable audit trail**: AWS QLDB for tamper-proof transaction history
+- **Security by design**: Encryption at rest and in transit, MFA enforcement, fine-grained access control, WAF protection
+- **Immutable audit trail**: Aurora PostgreSQL with ledger for tamper-evident transaction history
 - **Production-grade**: Scalable, observable, and compliant
+- **Serverless-first**: Lambda for bursty workloads, Fargate for long-running tasks
+- **Orchestration**: Step Functions for reliable workflow management
 
 ## Architecture
 
 ```mermaid
 graph TB
     subgraph "Client Layer"
-        WebApp[React/Next.js Web App]
-        MobileApp[Mobile Web App]
+        WebApp[React/Next.js Web App via AWS Amplify]
+        MobileApp[Mobile Web App via AWS Amplify]
     end
 
     subgraph "API Gateway"
-        APIGateway[API Gateway]
+        APIGateway[API Gateway + AWS WAF]
+    end
+
+    subgraph "Orchestration"
+        StepFunctions[AWS Step Functions]
+    end
+
+    subgraph "Processing"
+        Textract[Amazon Textract]
+        CompMed[Amazon Comprehend Medical]
+        Lambda[AWS Lambda]
+    end
+
+    subgraph "Data & Knowledge"
+        OpenSearch[Amazon OpenSearch Serverless]
+        Aurora[Amazon Aurora PostgreSQL]
+        S3[Amazon S3 + Object Lock]
     end
 
     subgraph "Application Services"
@@ -34,69 +52,65 @@ graph TB
         AIAssistant[AI Assistant]
         Dashboard[Dashboard Service]
         Notifications[Notification Service]
-        Blockchain[Blockchain Logger]
         Integrity[Integrity Checker]
         Monitoring[Monitoring Service]
-        MalwareScan[Malware Scanner]
     end
 
     subgraph "Data Layer"
         Cognito[Cognito]
-        QLDB[QLDB]
-        S3[S3]
-        RDS[RDS]
-        DynamoDB[DynamoDB]
+        S3Data[S3 Data Layer]
     end
 
     subgraph "AWS Services"
-        Textract[Textract]
+        TextractAWS[Textract]
+        CompMedAWS[Comprehend Medical]
         Bedrock[Bedrock]
         HealthLake[HealthLake]
         KMS[KMS]
         VerifiedPermissions[Verified Permissions]
+        GuardDuty[GuardDuty]
+        Macie[Macie]
     end
 
     WebApp --> APIGateway
     MobileApp --> APIGateway
     APIGateway --> Auth
     APIGateway --> ReportGen
-    APIGateway --> Scanner
     APIGateway --> AIAssistant
     APIGateway --> Dashboard
     APIGateway --> Notifications
-    APIGateway --> Blockchain
     APIGateway --> Integrity
     APIGateway --> Monitoring
 
     Auth --> Cognito
     Auth --> VerifiedPermissions
 
-    Scanner --> OCR
-    Scanner --> MalwareScan
-    MalwareScan --> Storage
-    OCR --> Textract
-    OCR --> FHIRNorm
-    FHIRNorm --> Storage
-    FHIRNorm --> HealthLake
+    StepFunctions --> Textract
+    StepFunctions --> CompMed
+    StepFunctions --> Lambda
+    StepFunctions --> GuardDuty
 
-    Storage --> S3
-    Storage --> RDS
+    Textract --> CompMed
+    CompMed --> Lambda
+    Lambda --> OpenSearch
+    Lambda --> Aurora
+    Lambda --> S3
+
+    Storage --> S3Data
+    Storage --> Aurora
     Storage --> KMS
-    Storage --> Blockchain
-    Storage --> Integrity
 
-    AIAssistant --> Storage
+    AIAssistant --> OpenSearch
     AIAssistant --> Bedrock
     AIAssistant --> Dashboard
 
-    Dashboard --> Storage
+    Dashboard --> Aurora
     Dashboard --> Notifications
 
-    Blockchain --> QLDB
-    Integrity --> QLDB
     Monitoring --> CloudWatch
     Monitoring --> XRay
-```
+    GuardDuty --> S3Data
+    Macie --> S3Data
 
 ## Components and Interfaces
 
@@ -115,12 +129,12 @@ graph TB
 
 #### Malware Scanner
 - **Purpose**: Scan uploaded documents for malware before processing
-- **Inputs**: Document files from S3
+- **Inputs**: Document files from S3 staging bucket
 - **Outputs**: Scan result (clean/quarantined)
 - **Key Operations**:
-  - Integrate with AWS GuardDuty Malware Protection or Lambda-based ClamAV scanner
+  - Use Amazon GuardDuty Malware Protection for S3 (managed service)
   - Quarantine infected documents in separate S3 bucket
-  - Notify user of malware detection
+  - Notify user of malware detection via in-app notification
   - Log scan results for audit compliance
 
 #### OCR Engine
@@ -128,21 +142,32 @@ graph TB
 - **Inputs**: Preprocessed document
 - **Outputs**: Extracted text with positional information
 - **Key Operations**:
-  - Textract integration
+  - Textract integration for text and table extraction
   - Text extraction with structure preservation
-  - Error handling with retry logic
-  - Processing time monitoring
+  - Error handling with retry logic via Step Functions
+  - Processing time monitoring (60-second limit)
+  - Pass extracted text to Comprehend Medical for entity extraction
 
-#### FHIR Normalizer
-- **Purpose**: Convert extracted text to FHIR-aligned structured data
+#### Medical NLP (Comprehend Medical)
+- **Purpose**: Extract medical entities from text using Amazon Comprehend Medical
 - **Inputs**: Extracted text from OCR
-- **Outputs**: FHIR-aligned structured data with provenance
+- **Outputs**: Structured medical entities (medications, dosages, diagnoses, procedures, PHI)
 - **Key Operations**:
   - Medication extraction (names, dosages, frequencies)
-  - Lab report extraction (test names, values, ranges)
-  - Visit summary extraction (diagnoses, procedures)
+  - Diagnosis extraction (ICD-10 codes)
+  - Procedure extraction (CPT codes)
+  - Protected Health Information (PHI) detection and redaction
+  - Confidence scoring for extracted entities
+
+#### FHIR Normalizer
+- **Purpose**: Convert extracted medical entities to FHIR-aligned structured data
+- **Inputs**: Structured entities from Comprehend Medical
+- **Outputs**: FHIR-aligned structured data with provenance
+- **Key Operations**:
+  - Map medical entities to FHIR resources (Medication, Observation, Condition, Procedure)
   - Confidence scoring for uncertain extractions
-  - Provenance tracking
+  - Provenance tracking to source documents
+  - Integration with HealthLake for FHIR store
 
 #### Secure Storage
 - **Purpose**: Store documents and structured data securely
@@ -150,43 +175,44 @@ graph TB
 - **Outputs**: Storage confirmation with audit log
 - **Key Operations**:
   - Per-user KMS encryption
-  - S3 document storage with versioning
-  - RDS structured data storage
-  - Audit logging
-  - Data deletion workflows
+  - S3 document storage with versioning and Object Lock (WORM compliance)
+  - Aurora PostgreSQL for structured data with ledger enabled
+  - Audit logging to Aurora with tamper-evident logging
+  - Data deletion workflows with 30-day retention
 
 #### AI Assistant
 - **Purpose**: Context-aware Q&A with controlled RAG pipeline
 - **Inputs**: Patient question, medical context
 - **Outputs**: Answer with confidence score and citations
 - **Key Operations**:
-  - Context retrieval from patient records
-  - Bedrock integration for generative Q&A
-  - Confidence scoring
-  - Source citation
+  - Context retrieval from OpenSearch Serverless using semantic search
+  - Bedrock integration (Claude 3.5 Sonnet) for generative Q&A
+  - Confidence scoring for responses
+  - Source citation from patient records
   - Guardrails for sensitive topics
+  - HIPAA-compliant response generation
 
 #### Dashboard Service
 - **Purpose**: Longitudinal analytics and trend visualization
-- **Inputs**: Patient health data
+- **Inputs**: Patient health data from Aurora
 - **Outputs**: Visualizations, clinician summaries
 - **Key Operations**:
-  - Longitudinal analytics
-  - Vitals visualization (glucose, BP, weight)
-  - Clinician summary generation
-  - Time period comparisons
-  - Mobile-optimized rendering
+  - Longitudinal analytics for health metrics
+  - Vitals visualization (glucose, BP, weight) with trend lines
+  - Clinician summary generation with abnormal values highlighted
+  - Time period comparisons (weekly, monthly, yearly)
+  - Mobile-optimized rendering for responsive display
 
 #### Report Generator
 - **Purpose**: Create and send medical reports from doctors to patients
 - **Inputs**: Clinical information, doctor credentials
 - **Outputs**: FHIR-aligned report, patient notification
 - **Key Operations**:
-  - Structured form for clinical entry
-  - FHIR format storage
+  - Structured form for clinical information entry
+  - FHIR format storage with doctor credentials
   - Digital signature requirement
-  - Patient notification
-  - Automatic FHIR normalization
+  - Patient notification via in-app notification
+  - Automatic FHIR normalization trigger
 
 #### Notification Service
 - **Purpose**: Handle in-app notifications
@@ -198,26 +224,26 @@ graph TB
   - Chronological ordering
   - Notification retention
 
-#### Blockchain Logger
-- **Purpose**: Record critical operations to AWS QLDB
-- **Inputs**: Operations data
-- **Outputs**: Blockchain transaction receipt
-- **Key Operations**:
-  - Access event logging
-  - Modification logging with cryptographic hash
-  - Consent action logging
-  - Document action logging
-  - Cryptographic verification
-
 #### Integrity Checker
 - **Purpose**: Verify data integrity
 - **Inputs**: Document data, stored hash
 - **Outputs**: Integrity verification result
 - **Key Operations**:
-  - Hash generation for stored documents
-  - Hash verification on retrieval
-  - Integrity violation detection
+  - Hash generation for stored documents using S3 Object Lock
+  - Hash verification on document retrieval
+  - Integrity violation detection and alerting
   - Independent verification support
+
+#### Audit Logger
+- **Purpose**: Record all system operations to Aurora with ledger
+- **Inputs**: Operations data
+- **Outputs**: Audit log entry with cryptographic hash
+- **Key Operations**:
+  - Access event logging with timestamp and user ID
+  - Modification logging with before/after states
+  - Security event logging with severity levels
+  - Tamper-evident logging using Aurora ledger
+  - Verifiable transaction receipt generation
 
 ### Data Models
 
@@ -330,8 +356,9 @@ Each property is a formal specification that should hold for all valid inputs.
 After analyzing all acceptance criteria, the following properties were identified as testable:
 
 **Properties to be implemented:**
-- Document upload validation (requirements 1.1-1.5)
+- Document upload validation (requirements 1.1-1.7)
 - OCR processing reliability (requirements 2.1-2.5)
+- Medical NLP entity extraction (requirements 2.3)
 - FHIR normalization accuracy (requirements 3.1-3.6)
 - Encryption integrity (requirements 4.1-4.6)
 - Access control enforcement (requirements 5.1-5.6)
@@ -348,7 +375,7 @@ After analyzing all acceptance criteria, the following properties were identifie
 - Report generation correctness (requirements 16.1-16.6)
 - Doctor report access control (requirements 17.1-17.5)
 - Notification delivery (requirements 18.1-18.5)
-- Blockchain logging integrity (requirements 19.1-19.6)
+- Audit ledger integrity (requirements 19.1-19.5)
 - Data integrity verification (requirements 20.1-20.5)
 
 ### Property Creation Process

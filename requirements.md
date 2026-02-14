@@ -16,13 +16,16 @@ Medi-Vault is a secure personal health management platform that helps patients m
 - **Authentication**: Amazon Cognito with MFA support
 - **Authorization**: AWS Verified Permissions for fine-grained access control
 - **Document Processing**: Amazon Textract for OCR
-- **Malware Protection**: AWS GuardDuty Malware Protection for S3 or Lambda-based ClamAV
+- **Medical NLP**: Amazon Comprehend Medical for entity extraction
+- **Malware Protection**: Amazon GuardDuty Malware Protection for S3
 - **AI/ML**: Amazon Bedrock for generative Q&A with RAG
-- **Data Storage**: Amazon S3 for documents, Amazon RDS for structured data
-- **Blockchain**: Amazon QLDB for immutable audit trail
+- **Vector Store**: Amazon OpenSearch Serverless (Vector Engine) for semantic search
+- **Data Storage**: Amazon S3 for documents (with Object Lock), Amazon Aurora PostgreSQL for structured data
 - **Analytics**: Amazon HealthLake for FHIR data management
 - **Monitoring**: Amazon CloudWatch and X-Ray for observability
-- **Security**: AWS KMS for encryption, AWS IAM for access management
+- **Security**: AWS KMS for encryption, AWS IAM for access management, AWS WAF for web protection, Amazon Macie for PII discovery
+- **Orchestration**: AWS Step Functions for workflow management
+- **Compute**: AWS Lambda for serverless processing, Amazon ECS Fargate for containerized services
 
 ## Glossary
 
@@ -31,21 +34,23 @@ Medi-Vault is a secure personal health management platform that helps patients m
 - **Doctor**: Healthcare provider with read-only access to patient records (consent-based)
 - **Family_Caregiver**: Secondary user with delegated permissions from the patient
 - **Document_Scanner**: Component that captures and processes medical documents
-- **Malware_Scanner**: AWS GuardDuty or Lambda-based scanner that checks uploaded documents for malware
-- **OCR_Engine**: AWS Textract-based optical character recognition service
+- **Malware_Scanner**: Amazon GuardDuty Malware Protection for S3 that automatically scans uploaded files
+- **OCR_Engine**: Amazon Textract-based optical character recognition service
+- **Medical_NLP**: Amazon Comprehend Medical for extracting medical entities (medications, diagnoses, procedures, PHI)
 - **FHIR_Normalizer**: Component that structures extracted data into FHIR-aligned format
-- **Secure_Storage**: S3 and RDS-based storage system with encryption
-- **AI_Assistant**: Context-aware Q&A system using RAG with Bedrock
+- **Secure_Storage**: S3 (with Object Lock) and Aurora-based storage system with encryption
+- **Vector_Store**: Amazon OpenSearch Serverless for semantic search and RAG
+- **AI_Assistant**: Context-aware Q&A system using RAG with Bedrock and OpenSearch
 - **Dashboard_Service**: Analytics and visualization component for health trends
-- **Security_Module**: IAM, KMS, and Verified Permissions-based security layer
-- **Audit_Logger**: Component that records all system access and modifications
+- **Security_Module**: IAM, KMS, Verified Permissions, GuardDuty, WAF, and Macie-based security layer
+- **Audit_Logger**: Component that records all system access and modifications to Aurora with ledger
 - **KMS**: AWS Key Management Service for encryption key management
 - **Cognito**: AWS Cognito for authentication and user management
 - **Verified_Permissions**: AWS Verified Permissions for fine-grained authorization
 - **Report_Generator**: Component that creates and sends medical reports from doctors to patients
 - **Notification_Service**: Component that handles in-app and push notifications
-- **Blockchain_Logger**: AWS QLDB-based immutable ledger for audit and compliance
-- **QLDB**: AWS Quantum Ledger Database for tamper-proof transaction history
+- **Step_Functions**: AWS Step Functions for orchestrating document processing workflows
+- **Lambda**: AWS Lambda for serverless compute in the processing pipeline
 
 ## Requirements
 
@@ -57,7 +62,7 @@ Medi-Vault is a secure personal health management platform that helps patients m
 
 1. WHEN a patient uploads a document file (PDF, image, or scanned document), THE Document_Scanner SHALL capture and preprocess it for OCR processing
 2. WHEN a document is uploaded, THE Document_Scanner SHALL validate file format and size limits (max 25MB)
-3. WHEN a document is uploaded, THE Security_Module SHALL scan it for malware using AWS GuardDuty or a Lambda-based scanner (e.g., ClamAV) before any processing occurs
+3. WHEN a document is uploaded, THE Security_Module SHALL scan it for malware using Amazon GuardDuty Malware Protection for S3 before any processing occurs
 4. IF malware is detected, THE document SHALL be quarantined in S3 and the user notified via in-app notification
 5. IF an invalid file format is uploaded, THEN THE Document_Scanner SHALL return an error message with acceptable formats
 6. IF a file exceeds size limits, THEN THE Document_Scanner SHALL return an error with size constraints
@@ -69,11 +74,12 @@ Medi-Vault is a secure personal health management platform that helps patients m
 
 #### Acceptance Criteria
 
-1. WHEN a document is ready for processing, THE OCR_Engine SHALL send it to AWS Textract for text extraction
+1. WHEN a document is ready for processing, THE OCR_Engine SHALL send it to Amazon Textract for text extraction
 2. WHEN Textract processing completes, THE OCR_Engine SHALL receive and store the extracted text with positional information
-3. IF Textract processing fails, THEN THE OCR_Engine SHALL log the error and return a descriptive error message
-4. WHEN text is extracted, THE OCR_Engine SHALL preserve document structure information (headings, paragraphs, tables)
-5. FOR ALL documents, THE OCR_Engine SHALL complete processing within 60 seconds
+3. WHEN text is extracted, THE OCR_Engine SHALL pass it to Amazon Comprehend Medical for medical entity extraction (medications, diagnoses, procedures, PHI)
+4. IF Textract processing fails, THEN THE OCR_Engine SHALL log the error and return a descriptive error message
+5. WHEN text is extracted, THE OCR_Engine SHALL preserve document structure information (headings, paragraphs, tables)
+6. FOR ALL documents, THE OCR_Engine SHALL complete processing within 60 seconds
 
 ### Requirement 3: Structured Medical Data Extraction
 
@@ -120,12 +126,12 @@ Medi-Vault is a secure personal health management platform that helps patients m
 
 #### Acceptance Criteria
 
-1. WHEN a patient asks a health-related question, THE AI_Assistant SHALL retrieve relevant context from their medical records
-2. WHEN context is retrieved, THE AI_Assistant SHALL use Bedrock for generative Q&A with controlled RAG pipeline
+1. WHEN a patient asks a health-related question, THE AI_Assistant SHALL retrieve relevant context from their medical records using Amazon OpenSearch Serverless (Vector Engine) for semantic search
+2. WHEN context is retrieved, THE AI_Assistant SHALL use Amazon Bedrock for generative Q&A with controlled RAG pipeline
 3. WHEN generating responses, THE AI_Assistant SHALL include confidence scores for all answers
 4. WHEN providing answers, THE AI_Assistant SHALL cite specific sources from the patient's records
 5. IF a question cannot be answered with sufficient confidence, THEN THE AI_Assistant SHALL indicate uncertainty
-6. WHEN a question involves sensitive topics, THE AI_Assistant SHALL apply guardrails to ensure appropriate responses
+6. WHEN a question involves sensitive topics, THE AI_Assistant SHALL apply Bedrock Guardrails to ensure appropriate responses
 
 ### Requirement 7: Health Trend Dashboard
 
@@ -272,18 +278,18 @@ Medi-Vault is a secure personal health management platform that helps patients m
 4. WHEN a report notification is pending, THE Notification_Service SHALL retain it until the patient views it
 5. WHEN multiple notifications exist, THE Notification_Service SHALL display them in chronological order
 
-### Requirement 19: Immutable Audit Trail with Blockchain
+### Requirement 19: Immutable Audit Trail
 
-**User Story:** As a patient, I want all critical operations recorded on an immutable blockchain ledger, so that I have verifiable proof of all data access and modifications.
+**User Story:** As a patient, I want all critical operations recorded on an immutable ledger, so that I have verifiable proof of all data access and modifications.
 
 #### Acceptance Criteria
 
-1. WHEN any user accesses medical records, THE Blockchain_Logger SHALL record the access event to AWS QLDB
-2. WHEN data modifications occur, THE Blockchain_Logger SHALL record the change with cryptographic hash
-3. WHEN consent is granted or revoked, THE Blockchain_Logger SHALL record the action with timestamp and user ID
-4. WHEN documents are uploaded or deleted, THE Blockchain_Logger SHALL record the action with document hash
-5. FOR ALL blockchain entries, THE Blockchain_Logger SHALL maintain cryptographic verification of integrity
-6. WHEN a patient requests audit proof, THE Blockchain_Logger SHALL provide verifiable transaction receipts
+1. WHEN any user accesses medical records, THE Audit_Logger SHALL record the access event to Amazon Aurora PostgreSQL with Ledger feature enabled
+2. WHEN data modifications occur, THE Audit_Logger SHALL record the change with cryptographic hash
+3. WHEN consent is granted or revoked, THE Audit_Logger SHALL record the action with timestamp and user ID
+4. WHEN documents are uploaded or deleted, THE Audit_Logger SHALL record the action with document hash
+5. FOR ALL audit entries, THE Audit_Logger SHALL maintain tamper-evident logging using Aurora's ledger capabilities
+6. WHEN a patient requests audit proof, THE Audit_Logger SHALL provide verifiable transaction receipts
 
 ### Requirement 20: Data Integrity Verification
 
@@ -294,30 +300,5 @@ Medi-Vault is a secure personal health management platform that helps patients m
 1. WHEN a document is stored, THE Integrity_Checker SHALL generate and store a cryptographic hash
 2. WHEN a document is retrieved, THE Integrity_Checker SHALL verify the hash matches the stored value
 3. WHEN a hash mismatch is detected, THE System SHALL flag the data as compromised and alert the patient
-4. FOR ALL blockchain-logged operations, THE Integrity_Checker SHALL enable independent verification
-5. WHEN integrity verification fails, THE System SHALL maintain data availability while restricting modifications
-
-### Requirement 19: Immutable Audit Trail with Blockchain
-
-**User Story:** As a patient, I want all critical operations recorded on an immutable blockchain ledger, so that I have verifiable proof of all data access and modifications.
-
-#### Acceptance Criteria
-
-1. WHEN any user accesses medical records, THE Blockchain_Logger SHALL record the access event to AWS QLDB
-2. WHEN data modifications occur, THE Blockchain_Logger SHALL record the change with cryptographic hash
-3. WHEN consent is granted or revoked, THE Blockchain_Logger SHALL record the action with timestamp and user ID
-4. WHEN documents are uploaded or deleted, THE Blockchain_Logger SHALL record the action with document hash
-5. FOR ALL blockchain entries, THE Blockchain_Logger SHALL maintain cryptographic verification of integrity
-6. WHEN a patient requests audit proof, THE Blockchain_Logger SHALL provide verifiable transaction receipts
-
-### Requirement 20: Data Integrity Verification
-
-**User Story:** As a patient, I want to verify the integrity of my medical records, so that I can trust the accuracy of my health information.
-
-#### Acceptance Criteria
-
-1. WHEN a document is stored, THE Integrity_Checker SHALL generate and store a cryptographic hash
-2. WHEN a document is retrieved, THE Integrity_Checker SHALL verify the hash matches the stored value
-3. WHEN a hash mismatch is detected, THE System SHALL flag the data as compromised and alert the patient
-4. FOR ALL blockchain-logged operations, THE Integrity_Checker SHALL enable independent verification
+4. FOR ALL audit-logged operations, THE Integrity_Checker SHALL enable independent verification
 5. WHEN integrity verification fails, THE System SHALL maintain data availability while restricting modifications
