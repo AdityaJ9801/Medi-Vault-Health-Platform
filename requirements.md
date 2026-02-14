@@ -16,6 +16,7 @@ Medi-Vault is a secure personal health management platform that helps patients m
 - **Authentication**: Amazon Cognito with MFA support
 - **Authorization**: AWS Verified Permissions for fine-grained access control
 - **Document Processing**: Amazon Textract for OCR
+- **Malware Protection**: AWS GuardDuty Malware Protection for S3 or Lambda-based ClamAV
 - **AI/ML**: Amazon Bedrock for generative Q&A with RAG
 - **Data Storage**: Amazon S3 for documents, Amazon RDS for structured data
 - **Blockchain**: Amazon QLDB for immutable audit trail
@@ -30,6 +31,7 @@ Medi-Vault is a secure personal health management platform that helps patients m
 - **Doctor**: Healthcare provider with read-only access to patient records (consent-based)
 - **Family_Caregiver**: Secondary user with delegated permissions from the patient
 - **Document_Scanner**: Component that captures and processes medical documents
+- **Malware_Scanner**: AWS GuardDuty or Lambda-based scanner that checks uploaded documents for malware
 - **OCR_Engine**: AWS Textract-based optical character recognition service
 - **FHIR_Normalizer**: Component that structures extracted data into FHIR-aligned format
 - **Secure_Storage**: S3 and RDS-based storage system with encryption
@@ -55,9 +57,11 @@ Medi-Vault is a secure personal health management platform that helps patients m
 
 1. WHEN a patient uploads a document file (PDF, image, or scanned document), THE Document_Scanner SHALL capture and preprocess it for OCR processing
 2. WHEN a document is uploaded, THE Document_Scanner SHALL validate file format and size limits (max 25MB)
-3. IF an invalid file format is uploaded, THEN THE Document_Scanner SHALL return an error message with acceptable formats
-4. IF a file exceeds size limits, THEN THE Document_Scanner SHALL return an error with size constraints
-5. WHEN a document is successfully captured, THE Document_Scanner SHALL generate a unique document identifier
+3. WHEN a document is uploaded, THE Security_Module SHALL scan it for malware using AWS GuardDuty or a Lambda-based scanner (e.g., ClamAV) before any processing occurs
+4. IF malware is detected, THE document SHALL be quarantined in S3 and the user notified via in-app notification
+5. IF an invalid file format is uploaded, THEN THE Document_Scanner SHALL return an error message with acceptable formats
+6. IF a file exceeds size limits, THEN THE Document_Scanner SHALL return an error with size constraints
+7. WHEN a document is successfully captured, THE Document_Scanner SHALL generate a unique document identifier
 
 ### Requirement 2: Optical Character Recognition
 

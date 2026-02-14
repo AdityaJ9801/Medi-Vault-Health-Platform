@@ -37,6 +37,7 @@ graph TB
         Blockchain[Blockchain Logger]
         Integrity[Integrity Checker]
         Monitoring[Monitoring Service]
+        MalwareScan[Malware Scanner]
     end
 
     subgraph "Data Layer"
@@ -71,6 +72,8 @@ graph TB
     Auth --> VerifiedPermissions
 
     Scanner --> OCR
+    Scanner --> MalwareScan
+    MalwareScan --> Storage
     OCR --> Textract
     OCR --> FHIRNorm
     FHIRNorm --> Storage
@@ -108,6 +111,17 @@ graph TB
   - Size limit enforcement
   - Document preprocessing (rotation, cleanup)
   - Unique ID generation
+  - Trigger malware scanning before processing
+
+#### Malware Scanner
+- **Purpose**: Scan uploaded documents for malware before processing
+- **Inputs**: Document files from S3
+- **Outputs**: Scan result (clean/quarantined)
+- **Key Operations**:
+  - Integrate with AWS GuardDuty Malware Protection or Lambda-based ClamAV scanner
+  - Quarantine infected documents in separate S3 bucket
+  - Notify user of malware detection
+  - Log scan results for audit compliance
 
 #### OCR Engine
 - **Purpose**: Extract text from documents using AWS Textract
@@ -350,11 +364,15 @@ The process of creating properties from requirements follows these steps:
 
 Property 1: Document upload validation
 *For any* document file, if the file format is valid and size is within limits, the Document_Scanner shall accept and process it; otherwise, it shall return an appropriate error message
-**Validates: Requirements 1.1, 1.2, 1.3, 1.4**
+**Validates: Requirements 1.1, 1.2, 1.5, 1.6**
+
+Property 1.5: Malware scanning enforcement
+*For any* uploaded document, the Malware_Scanner shall scan it for malware before any processing occurs; if malware is detected, the document shall be quarantined and the user notified
+**Validates: Requirements 1.3, 1.4**
 
 Property 2: Unique document identifier generation
 *For any* document upload, the Document_Scanner shall generate a unique document identifier that does not collide with any previously generated identifier
-**Validates: Requirements 1.5**
+**Validates: Requirements 1.7**
 
 Property 3: OCR processing reliability
 *For any* document, the OCR_Engine shall successfully extract text with positional information within 60 seconds, preserving document structure
