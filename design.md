@@ -111,6 +111,7 @@ graph TB
     Monitoring --> XRay
     GuardDuty --> S3Data
     Macie --> S3Data
+```
 
 ## Components and Interfaces
 
